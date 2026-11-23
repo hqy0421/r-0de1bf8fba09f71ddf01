@@ -1,0 +1,29 @@
+{
+	"file_declaration": {
+		"segment_delimiter": "\n",
+		"element_delimiter": "*",
+		"transaction_set": {
+			"begin_segment": "ST",
+			"end_segment": "SE",
+			"count_element_index": 1,
+			"control_element_index": 2
+		},
+		"segment_declarations": [
+			{
+				"name": "tx",
+				"type": "segment_group",
+				"is_target": true,
+				"max": -1,
+				"child_segments": [
+					{
+						"name": "ST"
+					},
+					{
+						"name": "SE"
+					}
+				]
+			}
+		]
+	},
+	"XPath": "."
+}

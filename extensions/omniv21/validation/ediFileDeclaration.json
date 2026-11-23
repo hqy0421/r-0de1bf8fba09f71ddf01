@@ -13,6 +13,17 @@
                 "repetition_delimiter": { "type": "string", "minLength": 1 },
                 "release_character": { "type": "string", "minLength": 1 },
                 "ignore_crlf": { "type": "boolean" },
+                "transaction_set": {
+                    "type": "object",
+                    "properties": {
+                        "begin_segment": { "type": "string", "minLength": 1 },
+                        "end_segment": { "type": "string", "minLength": 1 },
+                        "count_element_index": { "type": "integer", "minimum": 1 },
+                        "control_element_index": { "type": "integer", "minimum": 1 }
+                    },
+                    "required": [ "begin_segment", "end_segment" ],
+                    "additionalProperties": false
+                },
                 "segment_declarations": {
                     "type": "array",
                     "items": {

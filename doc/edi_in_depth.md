@@ -90,6 +90,12 @@ A full EDI schema `file_declaration` is as follows:
     "repetition_delimiter": "<repetition delimiter>",               <== optional
     "release_character": "<release character>",                     <== optional
     "ignore_crlf": true/false,                                      <== optional
+    "transaction_set": {                                            <== optional
+        "begin_segment": "<transaction set begin segment name>",    <== required if transaction_set specified
+        "end_segment": "<transaction set end segment name>",        <== required if transaction_set specified
+        "count_element_index": integer >= 1,                        <== optional
+        "control_element_index": integer >= 1                       <== optional
+    },
     "segment_declarations": [
         {
             "name": "<segment name>",                               <== required
@@ -151,6 +157,18 @@ can specify `"ignore_crlf": true` and omniparser will ignore all these CR and LF
 EDI data providers do use LF (`"\n"`) (or CRLF `"\r\n"`) as segment delimiter, in such cases, specify LF
 (or CRLF) in `segment_delimiter` and do not use `ignore_crlf`. For example,
 [CanadaPost EDI 214](../extensions/omniv21/samples/edi/1_canadapost_edi_214.schema.json).
+
+- `transaction_set`: optional. Enables per-transaction-set integrity check and rejection, e.g. X12
+`ST`..`SE`. See [Transaction Set Integrity Check and Rejection](#transaction-set-integrity-check-and-rejection)
+for details.
+    - `begin_segment`: the name of the transaction set begin segment, e.g. `ST`.
+    - `end_segment`: the name of the transaction set end segment, e.g. `SE`.
+    - `count_element_index`: the 1-based element index on the end segment that holds the declared
+    transaction set segment count (e.g. `1` for `SE01`). Optional, defaults to 1.
+    - `control_element_index`: the 1-based element index on both the begin and end segments that
+    holds the transaction set control number (e.g. `2` for `ST02`/`SE02`). Optional. If specified,
+    the begin and end segments' control numbers must match for the reader to consider a transaction
+    boundary recovered.
 
 - `segment_declarations`: specifies a list of top-level segments (or segment groups) in the EDI
 document, each of which is defined as follows:
@@ -685,6 +703,41 @@ And have the `weight` field transform be:
 This way, if `CD3/weight` is not specified in the input, the script will return empty string causing
 omniparser to omit the `weight` field from the output; the value is present in the input, then we will
 do float parsing and return the result as type-casted float value.
+
+## Transaction Set Integrity Check and Rejection
+An EDI file from a trading partner usually contains many transaction sets (e.g. X12 `ST`..`SE`).
+Per X12 standard, the `SE` segment's first element (`SE01`) declares the number of segments in the
+transaction set, counting from `ST` through `SE` inclusive. Suppliers sometimes produce files in
+which one transaction set's declared count is wrong. Without any safeguard, that one bad transaction
+set either goes unnoticed or fails the entire file.
+
+When `transaction_set` is specified in `file_declaration`, omniparser tracks each transaction set by
+its **real transaction boundary** (the actual `ST`..`SE` segments in the input, not the declared
+count) and verifies the declared count against the actual segment count:
+
+- If the counts match, the transaction set is transformed to JSON as usual.
+- If the counts don't match (or the declared count is missing/invalid), that one transaction set is
+  **rejected**: it is not emitted, and a continuable error is returned that carries the rejected
+  transaction set's first and last segment positions, e.g.:
+  ```
+  input 'sample.edi' transaction set rejected: first segment no.8 (char[289,306]), last segment no.11 (char[375,390]): segment 'SE' declared segment count 2, but actually 4
+  ```
+  The remaining transaction sets continue to be transformed. (Continuable errors are surfaced
+  to callers as `ErrTransformFailed`; see `Transform.Read` semantics in
+  [transform.go](../transform.go).)
+- The reader only continues past a rejected transaction set when it can **prove** the transaction
+  boundary has been recovered: the end segment must actually terminate the transaction set, and, if
+  `control_element_index` is specified, the end segment's control number must match the begin
+  segment's (e.g. `SE02` == `ST02`). When the boundary cannot be proven to be recovered - the end
+  segment is missing before EOF or before a new `ST`, an `SE` appears without a preceding `ST`, or
+  the control numbers don't match - a fatal `ErrInvalidEDI` is returned and no more output is
+  produced.
+
+For the rejection to be precise, the schema must declare the begin/end segments as plain segments
+under the target segment/segment_group, the end segment must be mandatory (`min` >= 1), and it must
+be positioned as the last child all the way up to the target - schema validation enforces these
+constraints. See a complete example in
+[4_x12_210_txset_rejection.schema.json](../extensions/omniv21/samples/edi/4_x12_210_txset_rejection.schema.json).
 
 ## Segment Ambiguity
 The most difficult part of authoring an EDI schema is to declare the segment/segment_group structure

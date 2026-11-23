@@ -96,6 +96,68 @@ func TestValidateSchema(t *testing.T) {
 			err:         `schema 'test': 'FINAL_OUTPUT' is missing`,
 		},
 		{
+			name:   "transaction_set json schema validation fail",
+			format: fileFormatEDI,
+			fileDecl: `{
+				"file_declaration": {
+					"segment_delimiter": "\n",
+					"element_delimiter": "*",
+					"transaction_set": { "begin_segment": "ST" },
+					"segment_declarations": [
+						{ "name": "ISA", "is_target": true }
+					]
+				}
+			}`,
+			finalOutput: nil,
+			err:         `schema 'test' validation failed: file_declaration.transaction_set: end_segment is required`,
+		},
+		{
+			name:   "transaction_set in code validation fail",
+			format: fileFormatEDI,
+			fileDecl: `{
+				"file_declaration": {
+					"segment_delimiter": "\n",
+					"element_delimiter": "*",
+					"transaction_set": { "begin_segment": "ST", "end_segment": "SE" },
+					"segment_declarations": [
+						{ "name": "ISA", "is_target": true }
+					]
+				}
+			}`,
+			finalOutput: nil,
+			err:         `schema 'test': transaction_set: begin segment 'ST' is not declared as a segment under the target segment/group`,
+		},
+		{
+			name:   "transaction_set success",
+			format: fileFormatEDI,
+			fileDecl: `{
+				"file_declaration": {
+					"segment_delimiter": "\n",
+					"element_delimiter": "*",
+					"transaction_set": {
+						"begin_segment": "ST",
+						"end_segment": "SE",
+						"count_element_index": 1,
+						"control_element_index": 2
+					},
+					"segment_declarations": [
+						{
+							"name": "tx",
+							"type": "segment_group",
+							"is_target": true,
+							"max": -1,
+							"child_segments": [
+								{ "name": "ST" },
+								{ "name": "SE" }
+							]
+						}
+					]
+				}
+			}`,
+			finalOutput: &transform.Decl{XPath: strs.StrPtr(".")},
+			err:         ``,
+		},
+		{
 			name:   "FINAL_OUTPUT xpath is invalid",
 			format: fileFormatEDI,
 			fileDecl: `{

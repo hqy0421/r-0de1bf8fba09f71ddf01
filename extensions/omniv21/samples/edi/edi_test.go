@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/jf-tech/omniparser"
+	"github.com/jf-tech/omniparser/errs"
 	"github.com/jf-tech/omniparser/extensions/omniv21/fileformat/edi"
 	"github.com/jf-tech/omniparser/extensions/omniv21/samples"
 	"github.com/jf-tech/omniparser/transformctx"
@@ -99,6 +100,56 @@ func Test2_UPS_EDI_210(t *testing.T) {
 
 func Test3_X12_834(t *testing.T) {
 	tests[test3_X12_834].doTest(t)
+}
+
+// Test4_X12_210_TxSetRejection verifies that in a multi-transaction EDI input where
+// one transaction set's SE declared segment count is wrong, that transaction set is
+// isolated by its real transaction boundary and rejected (with the first/last segment
+// positions in the rejection), while the other transaction sets continue to be
+// transformed to JSON.
+func Test4_X12_210_TxSetRejection(t *testing.T) {
+	schemaFileReader, err := os.Open("./4_x12_210_txset_rejection.schema.json")
+	assert.NoError(t, err)
+	defer schemaFileReader.Close()
+	inputFileReader, err := os.Open("./4_x12_210_txset_rejection.input.txt")
+	assert.NoError(t, err)
+	defer inputFileReader.Close()
+
+	schema, err := omniparser.NewSchema("4_x12_210_txset_rejection.schema.json", schemaFileReader)
+	assert.NoError(t, err)
+	transform, err := schema.NewTransform(
+		"4_x12_210_txset_rejection.input.txt", inputFileReader, &transformctx.Ctx{})
+	assert.NoError(t, err)
+
+	// Transaction set 1 (ST*210*000158669, SE declares 5, actual 5): transforms fine.
+	record, err := transform.Read()
+	assert.NoError(t, err)
+	assert.JSONEq(t,
+		`{"invoice_number": "0000001808WW308", "amount_due": "1700"}`,
+		string(record))
+
+	// Transaction set 2 (ST*210*000158670, SE declares 2, actual 4): rejected. The
+	// rejection is a continuable error carrying the first/last segment positions.
+	record, err = transform.Read()
+	assert.Nil(t, record)
+	assert.Error(t, err)
+	assert.True(t, errs.IsErrTransformFailed(err))
+	assert.Equal(t,
+		"input '4_x12_210_txset_rejection.input.txt' transaction set rejected: "+
+			"first segment no.8 (char[289,306]), last segment no.11 (char[375,390]): "+
+			"segment 'SE' declared segment count 2, but actually 4",
+		err.Error())
+
+	// Transaction set 3 (ST*210*000158671, SE declares 3, actual 3): transforms fine.
+	record, err = transform.Read()
+	assert.NoError(t, err)
+	assert.JSONEq(t,
+		`{"invoice_number": "0000001603WW308", "amount_due": "1700"}`,
+		string(record))
+
+	record, err = transform.Read()
+	assert.Nil(t, record)
+	assert.Equal(t, io.EOF, err)
 }
 
 func Test3_NonValidatingReader(t *testing.T) {

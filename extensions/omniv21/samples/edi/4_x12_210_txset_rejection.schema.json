@@ -1,0 +1,55 @@
+{
+    "parser_settings": {
+        "version": "omni.2.1",
+        "file_format_type": "edi"
+    },
+    "file_declaration": {
+        "segment_delimiter": "|",
+        "element_delimiter": "*",
+        "ignore_crlf": true,
+        "transaction_set": {
+            "begin_segment": "ST",
+            "end_segment": "SE",
+            "count_element_index": 1,
+            "control_element_index": 2
+        },
+        "segment_declarations": [
+            {
+                "name": "ISA",
+                "child_segments": [
+                    {
+                        "name": "GS",
+                        "child_segments": [
+                            {
+                                "name": "invoiceInfo", "type": "segment_group", "min": 0, "max": -1, "is_target": true,
+                                "child_segments": [
+                                    { "name": "ST", "elements": [
+                                        { "name": "transactionSetId", "index": 1 },
+                                        { "name": "controlNumber", "index": 2 }
+                                    ]},
+                                    { "name": "B3", "elements": [
+                                        { "name": "invoiceNumber", "index": 2 },
+                                        { "name": "amountDue", "index": 7 }
+                                    ]},
+                                    { "name": "N1", "min": 0, "max": -1, "elements": [
+                                        { "name": "entityIdentifierCode", "index": 1 },
+                                        { "name": "name", "index": 2 }
+                                    ]},
+                                    { "name": "SE" }
+                                ]
+                            }
+                        ]
+                    },
+                    { "name": "GE" }
+                ]
+            },
+            { "name": "IEA" }
+        ]
+    },
+    "transform_declarations": {
+        "FINAL_OUTPUT": { "object": {
+            "invoice_number": { "xpath": "B3/invoiceNumber" },
+            "amount_due": { "xpath": "B3/amountDue" }
+        } }
+    }
+}

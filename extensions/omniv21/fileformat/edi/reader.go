@@ -36,6 +36,7 @@ type ediReader struct {
 	target            *idr.Node
 	targetXPath       *xpath.Expr
 	unprocessedRawSeg RawSeg
+	txSet             *txSetTracker
 }
 
 func inRange(i, lowerBoundInclusive, upperBoundInclusive int) bool {
@@ -89,9 +90,19 @@ func (r *ediReader) getUnprocessedRawSeg() (RawSeg, error) {
 	rawSeg, err := r.r.Read()
 	switch {
 	case err == io.EOF:
+		if r.txSet != nil {
+			if err := r.txSet.checkEOF(r.r); err != nil {
+				return RawSeg{}, err
+			}
+		}
 		return RawSeg{}, io.EOF
 	case err != nil:
 		return RawSeg{}, ErrInvalidEDI(r.fmtErrStr(err.Error()))
+	}
+	if r.txSet != nil {
+		if err := r.txSet.track(rawSeg, r.r); err != nil {
+			return RawSeg{}, err
+		}
 	}
 	r.unprocessedRawSeg = rawSeg
 	r.unprocessedRawSeg.valid = true
@@ -265,6 +276,21 @@ func (r *ediReader) Read() (*idr.Node, error) {
 			continue
 		}
 		r.segDone()
+		if r.txSet != nil && r.txSet.rejection != nil {
+			// The transaction set end segment was just fully processed and the
+			// transaction set failed the integrity check: reject it by discarding
+			// the target it just produced (if any) and returning the (continuable)
+			// rejection. The reader state is already recovered to the real
+			// transaction boundary, so subsequent Read calls continue with the
+			// remaining transaction sets.
+			rejection := r.txSet.rejection
+			r.txSet.rejection = nil
+			if r.target != nil {
+				idr.RemoveAndReleaseTree(r.target)
+				r.target = nil
+			}
+			return nil, rejection
+		}
 	}
 }
 
@@ -322,6 +348,9 @@ func NewReader(inputName string, r io.Reader, decl *FileDecl, targetXPath string
 		stack:             newStack(),
 		targetXPath:       targetXPathExpr,
 		unprocessedRawSeg: newRawSeg(),
+	}
+	if decl.TxSet != nil {
+		reader.txSet = newTxSetTracker(inputName, decl.TxSet)
 	}
 	reader.growStack(stackEntry{
 		segDecl: &SegDecl{
